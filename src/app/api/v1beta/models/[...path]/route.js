@@ -1,4 +1,5 @@
 import { handleChat } from "@/sse/handlers/chat.js";
+import { checkApiKeyModelAccess } from "@/sse/services/apiKeyScope.js";
 import {
   clearAccountError,
   getProviderCredentials,
@@ -81,6 +82,9 @@ export async function POST(request, { params }) {
         .replace(":streamGenerateContent", "")
         .replace(":generateContent", "");
     }
+
+    const scopeError = await checkApiKeyModelAccess(extractGeminiClientApiKey(request), model);
+    if (scopeError) return scopeError;
 
     const body = await request.json();
 

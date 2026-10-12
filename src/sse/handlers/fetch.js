@@ -14,6 +14,7 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { handleComboChat, getComboModelsFromData } from "open-sse/services/combo.js";
 import { assertPublicUrl } from "@/shared/utils/ssrfGuard.js";
+import { checkApiKeyModelAccess } from "../services/apiKeyScope.js";
 
 /**
  * Handle web fetch (URL extraction) request for the SSE/Next.js server.
@@ -65,6 +66,9 @@ export async function handleFetch(request) {
     log.warn("FETCH", "Missing provider/model");
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing required field: provider (or model)");
   }
+
+  const scopeError = await checkApiKeyModelAccess(apiKey, providerInput, { providerOnly: !providerInput.includes("/") });
+  if (scopeError) return scopeError;
 
   if (!targetUrl || typeof targetUrl !== "string") {
     log.warn("FETCH", "Missing url");

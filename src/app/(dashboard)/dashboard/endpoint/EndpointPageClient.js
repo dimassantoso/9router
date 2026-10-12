@@ -17,11 +17,15 @@ import EndpointRow from "./components/EndpointRow";
 import StatusAlert from "./components/StatusAlert";
 import Tooltip from "./components/Tooltip";
 import SecurityWarning from "./components/SecurityWarning";
+import ApiKeyScopeEditor from "./components/ApiKeyScopeEditor";
+import { describeApiKeyScopes, isApiKeyRestricted } from "@/shared/utils/apiKeyScopes";
 export default function APIPageClient({ machineId }) {
   const [keys, setKeys] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
+  const [newKeyScopes, setNewKeyScopes] = useState([]);
+  const [editingKey, setEditingKey] = useState(null);
   const [createdKey, setCreatedKey] = useState(null);
   const [confirmState, setConfirmState] = useState(null);
 
@@ -629,7 +633,7 @@ export default function APIPageClient({ machineId }) {
       const res = await fetch("/api/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newKeyName }),
+        body: JSON.stringify({ name: newKeyName, scopes: newKeyScopes }),
       });
       const data = await res.json();
 
@@ -637,6 +641,7 @@ export default function APIPageClient({ machineId }) {
         setCreatedKey(data.key);
         await fetchData();
         setNewKeyName("");
+        setNewKeyScopes([]);
         setShowAddModal(false);
       }
     } catch (error) {
@@ -679,6 +684,24 @@ export default function APIPageClient({ machineId }) {
       }
     } catch (error) {
       console.log("Error toggling key:", error);
+    }
+  };
+
+  const handleSaveScopes = async () => {
+    if (!editingKey) return;
+    try {
+      const res = await fetch(`/api/keys/${editingKey.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scopes: editingKey.scopes }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setKeys(prev => prev.map(k => k.id === editingKey.id ? { ...k, scopes: data.key?.scopes ?? editingKey.scopes } : k));
+        setEditingKey(null);
+      }
+    } catch (error) {
+      console.log("Error saving key scopes:", error);
     }
   };
 
@@ -1036,8 +1059,18 @@ export default function APIPageClient({ machineId }) {
                       </span>
                     </button>
                   </div>
-                  <p className="text-xs text-text-muted mt-1">
-                    Created {new Date(key.createdAt).toLocaleDateString()}
+                  <p className="text-xs text-text-muted mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span>Created {new Date(key.createdAt).toLocaleDateString()}</span>
+                    <button
+                      type="button"
+                      onClick={() => setEditingKey({ id: key.id, name: key.name, scopes: key.scopes || [] })}
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${isApiKeyRestricted(key.scopes) ? "bg-primary/10 text-primary hover:bg-primary/20" : "bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"}`}
+                      title={`${isApiKeyRestricted(key.scopes) ? key.scopes.map(s => `${s.type}: ${s.value}`).join("\n") : "This key can call every model"}\n\nClick to edit allowed models`}
+                    >
+                      <span className="material-symbols-outlined text-[12px]">{isApiKeyRestricted(key.scopes) ? "lock" : "lock_open"}</span>
+                      {describeApiKeyScopes(key.scopes)}
+                      <span className="material-symbols-outlined text-[12px]">edit</span>
+                    </button>
                   </p>
                   {key.isActive === false && (
                     <p className="text-xs text-orange-500 mt-1">Paused</p>
@@ -1064,6 +1097,13 @@ export default function APIPageClient({ machineId }) {
                     title={key.isActive ? "Pause key" : "Resume key"}
                   />
                   <button
+                    onClick={() => setEditingKey({ id: key.id, name: key.name, scopes: key.scopes || [] })}
+                    className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-all"
+                    title="Edit allowed models"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">tune</span>
+                  </button>
+                  <button
                     onClick={() => handleDeleteKey(key.id)}
                     className="p-2 hover:bg-red-500/10 rounded text-red-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                   >
@@ -1083,6 +1123,7 @@ export default function APIPageClient({ machineId }) {
         onClose={() => {
           setShowAddModal(false);
           setNewKeyName("");
+          setNewKeyScopes([]);
         }}
       >
         <div className="flex flex-col gap-4">
@@ -1092,6 +1133,7 @@ export default function APIPageClient({ machineId }) {
             onChange={(e) => setNewKeyName(e.target.value)}
             placeholder="Production Key"
           />
+          <ApiKeyScopeEditor key={showAddModal ? "open" : "closed"} scopes={newKeyScopes} onChange={setNewKeyScopes} requireApiKey={requireApiKey} />
           <div className="flex gap-2">
             <Button onClick={handleCreateKey} fullWidth disabled={!newKeyName.trim()}>
               Create
@@ -1100,6 +1142,7 @@ export default function APIPageClient({ machineId }) {
               onClick={() => {
                 setShowAddModal(false);
                 setNewKeyName("");
+                setNewKeyScopes([]);
               }}
               variant="ghost"
               fullWidth
@@ -1108,6 +1151,31 @@ export default function APIPageClient({ machineId }) {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Edit Key Scopes Modal */}
+      <Modal
+        isOpen={!!editingKey}
+        title={editingKey ? `Allowed Models · ${editingKey.name}` : "Allowed Models"}
+        onClose={() => setEditingKey(null)}
+      >
+        {editingKey && (
+          <div className="flex flex-col gap-4">
+            <ApiKeyScopeEditor
+              scopes={editingKey.scopes}
+              onChange={(scopes) => setEditingKey(prev => ({ ...prev, scopes }))}
+              requireApiKey={requireApiKey}
+            />
+            <div className="flex gap-2">
+              <Button onClick={handleSaveScopes} fullWidth>
+                Save
+              </Button>
+              <Button onClick={() => setEditingKey(null)} variant="ghost" fullWidth>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Created Key Modal */}

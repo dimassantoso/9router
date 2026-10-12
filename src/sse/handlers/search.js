@@ -13,6 +13,7 @@ import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { handleComboChat, getComboModelsFromData } from "open-sse/services/combo.js";
+import { checkApiKeyModelAccess } from "../services/apiKeyScope.js";
 
 /**
  * Handle web search request for the SSE/Next.js server.
@@ -62,6 +63,9 @@ export async function handleSearch(request) {
     log.warn("SEARCH", "Missing provider/model");
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing required field: provider (or model)");
   }
+
+  const scopeError = await checkApiKeyModelAccess(apiKey, providerInput, { providerOnly: !providerInput.includes("/") });
+  if (scopeError) return scopeError;
 
   if (!query || typeof query !== "string" || !query.trim()) {
     log.warn("SEARCH", "Missing query");
